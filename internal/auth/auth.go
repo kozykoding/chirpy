@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -80,14 +82,40 @@ func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
 func GetBearerToken(headers http.Header) (string, error) {
 	authHeader := headers.Get("Authorization")
 	if authHeader == "" {
-		return "", errors.New("no authorization header found")
+		return "", fmt.Errorf("no authorization header found")
 	}
 
-	// Split "Bearer <token>"
+	// Split by space: ["Bearer", "TOKEN_STRING"]
 	parts := strings.Split(authHeader, " ")
 	if len(parts) != 2 || parts[0] != "Bearer" {
+		return "", fmt.Errorf("malformed authorization header")
+	}
+
+	// Return only the token part
+	return parts[1], nil
+}
+
+// MakeRefreshToken generates a random 256-bit (32-byte) hex-encoded string
+func MakeRefreshToken() (string, error) {
+	bytes := make([]byte, 32)
+	_, err := rand.Read(bytes)
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(bytes), nil
+}
+
+// GetAPIKey extracts an API Key from the headers of an HTTP request
+func GetAPIKey(headers http.Header) (string, error) {
+	val := headers.Get("Authorization")
+	if val == "" {
+		return "", errors.New("no authentication info found")
+	}
+
+	vals := strings.Split(val, " ")
+	if len(vals) != 2 || vals[0] != "ApiKey" {
 		return "", errors.New("malformed authorization header")
 	}
 
-	return strings.TrimSpace(parts[1]), nil
+	return vals[1], nil
 }
