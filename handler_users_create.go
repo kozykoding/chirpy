@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"time"
 
+	"workspace/github.com/kozykoding/chirpy/internal/auth"
+	"workspace/github.com/kozykoding/chirpy/internal/database"
+
 	"github.com/google/uuid"
 )
 
@@ -17,7 +20,8 @@ type User struct {
 
 func (cfg *apiConfig) handlerUsersCreate(w http.ResponseWriter, r *http.Request) {
 	type parameters struct {
-		Email string `json:"email"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
 	}
 	type response struct {
 		User
@@ -27,16 +31,28 @@ func (cfg *apiConfig) handlerUsersCreate(w http.ResponseWriter, r *http.Request)
 	params := parameters{}
 	err := decoder.Decode(&params)
 	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Couldn't decode parameters", err)
+		respondWithError(w, http.StatusBadRequest, "Couldn't decode parameters", err)
 		return
 	}
 
-	user, err := cfg.db.CreateUser(r.Context(), params.Email)
+	// 1. Hash the password using the internal/auth package
+	hashedPassword, err := auth.HashPassword(params.Password)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't hash password", err)
+		return
+	}
+
+	// 2. Create user in the database with the hashed password
+	user, err := cfg.db.CreateUser(r.Context(), database.CreateUserParams{
+		Email:          params.Email,
+		HashedPassword: hashedPassword,
+	})
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't create user", err)
 		return
 	}
 
+	// 3. Respond without the hashed password
 	respondWithJSON(w, http.StatusCreated, response{
 		User: User{
 			ID:        user.ID,

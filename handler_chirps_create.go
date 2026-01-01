@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"workspace/github.com/kozykoding/chirpy/internal/auth"
 	"workspace/github.com/kozykoding/chirpy/internal/database"
 
 	"github.com/google/uuid"
@@ -22,36 +23,40 @@ type Chirp struct {
 
 func (cfg *apiConfig) handlerChirpsCreate(w http.ResponseWriter, r *http.Request) {
 	type parameters struct {
-		Body   string    `json:"body"`
-		UserID uuid.UUID `json:"user_id"`
+		Body string `json:"body"`
+	}
+
+	// 1. Authenticate via Header
+	token, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Couldn't find JWT", err)
+		return
+	}
+
+	userID, err := auth.ValidateJWT(token, cfg.jwtSecret)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Couldn't validate JWT", err)
+		return
 	}
 
 	decoder := json.NewDecoder(r.Body)
 	params := parameters{}
-	err := decoder.Decode(&params) // Declaration of err
-	if err != nil {
+	if err := decoder.Decode(&params); err != nil {
 		respondWithError(w, http.StatusBadRequest, "Couldn't decode parameters", err)
 		return
 	}
 
-	// 1. Explicit User Validation (Required by tests to return 400 instead of 500)
-	_, err = cfg.db.GetUser(r.Context(), params.UserID) // Re-assignment of err
-	if err != nil {
-		respondWithError(w, http.StatusBadRequest, "User does not exist", err)
-		return
-	}
-
-	// 2. Validate Body
-	cleaned, err := validateChirp(params.Body) // Re-assignment of err
+	// 2. Ported Validation Logic
+	cleaned, err := validateChirp(params.Body)
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, err.Error(), err)
 		return
 	}
 
-	// 3. Create Chirp (Uses your 2-parameter SQL query)
+	// 3. Create Chirp using Authenticated UserID
 	chirp, err := cfg.db.CreateChirp(r.Context(), database.CreateChirpParams{
 		Body:   cleaned,
-		UserID: params.UserID,
+		UserID: userID,
 	})
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't create chirp", err)
